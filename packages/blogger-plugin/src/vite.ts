@@ -47,7 +47,7 @@ function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: PluginC
       const proxyUrl = new URL(req.originalUrl, ctx.options.proxyBlog);
 
       const viewParam = proxyUrl.searchParams.get('view');
-      proxyUrl.searchParams.set('view', `-${isViteDevServer(server) ? 'Dev' : 'Preview'}Server${viewParam?.startsWith('-') ? viewParam : ''}`);
+      proxyUrl.searchParams.set('view', `${isViteDevServer(server) ? '-DevServer' : '-PreviewServer'}${viewParam?.startsWith('-') ? viewParam : ''}`);
 
       const proxyRequest = new Request(proxyUrl, {
         method: req.method,
@@ -102,30 +102,30 @@ function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: PluginC
         const contentType = proxyResponse.headers.get('content-type');
 
         if (contentType?.startsWith('text/html')) {
-          let templateContent = await proxyResponse.text();
+          let htmlTemplateContent = await proxyResponse.text();
 
           if (requestHost && requestProtocol) {
-            templateContent = replaceHost(templateContent, proxyUrl.host, requestHost, requestProtocol);
+            htmlTemplateContent = replaceHost(htmlTemplateContent, proxyUrl.host, requestHost, requestProtocol);
           }
 
           if (isViteDevServer(server)) {
             const htmlTags: string[] = [];
 
-            htmlTags.push(`<script src='/${path.relative(ctx.viteConfig.root, ctx.entry)}' type='module'></script>`);
+            htmlTags.push(`<script src='/${escapeHtml(path.relative(ctx.viteConfig.root, ctx.entry))}' type='module'></script>`);
 
             const template = await server.transformIndexHtml(
               req.url,
-              replaceBloggerPluginHeadComment(templateContent, htmlTags.join('')),
+              replaceBloggerPluginHeadComment(htmlTemplateContent, htmlTags.join('')),
               req.originalUrl,
             );
 
             res.end(template);
           } else {
-            const templateContent = fs.readFileSync(path.resolve(ctx.viteConfig.build.outDir, 'template.xml'), 'utf8');
+            const xmlTemplateContent = fs.readFileSync(path.resolve(ctx.viteConfig.build.outDir, 'template.xml'), 'utf8');
 
-            const htmlTagsStr = getBloggerPluginHeadComment(templateContent, true);
+            const htmlTagsStr = getBloggerPluginHeadComment(xmlTemplateContent, true);
 
-            const template = replaceBloggerPluginHeadComment(templateContent, htmlTagsStr ?? '');
+            const template = replaceBloggerPluginHeadComment(htmlTemplateContent, htmlTagsStr ?? '');
 
             res.end(template);
           }
@@ -225,9 +225,8 @@ export default function blogger(userOptions: BloggerPluginOptions): Plugin {
       config.build.rollupOptions.input = entry;
 
       // remove contents between comments from template
-      const templateContent = fs.readFileSync(ctx.template, 'utf8');
-
-      fs.writeFileSync(ctx.template, replaceBloggerPluginHeadComment(replaceBloggerPluginHeadComment(templateContent, ''), '', true), {
+      const xmlTemplateContent = fs.readFileSync(ctx.template, 'utf8');
+      fs.writeFileSync(ctx.template, replaceBloggerPluginHeadComment(replaceBloggerPluginHeadComment(xmlTemplateContent, ''), '', true), {
         encoding: 'utf8',
       });
     },
@@ -240,7 +239,7 @@ export default function blogger(userOptions: BloggerPluginOptions): Plugin {
           continue;
         }
 
-        const templateContent = fs.readFileSync(ctx.template, 'utf8');
+        const xmlTemplateContent = fs.readFileSync(ctx.template, 'utf8');
 
         const htmlTags: string[] = [];
         output.viteMetadata?.importedCss.forEach((value) => {
@@ -248,7 +247,7 @@ export default function blogger(userOptions: BloggerPluginOptions): Plugin {
         });
         htmlTags.push(`<script crossorigin='anonymous' src='${escapeHtml(ctx.viteConfig.base + output.fileName)}' type='module'></script>`);
 
-        const template = replaceBloggerPluginHeadComment(templateContent, htmlTags.join(''), true);
+        const template = replaceBloggerPluginHeadComment(xmlTemplateContent, htmlTags.join(''), true);
 
         this.emitFile({
           type: 'asset',
