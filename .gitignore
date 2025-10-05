@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# production
+build/
+dist/
+
+# turbo
+.turbo
+
+# misc
+.DS_Store
+
+# cert
+.cert
+
+# debugs
+npm-debug.log
+yarn-error.log
+yarn.lock
+.yarnclean
+
+# private
+*.log
+*.key
+*.crt
