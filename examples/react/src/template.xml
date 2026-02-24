@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE html>
+<html b:css='false' b:defaultwidgetversion='2' b:layoutsVersion='3' b:responsive='true' b:templateUrl='react-blogger.xml' b:templateVersion='0.0.0' xmlns='http://www.w3.org/1999/xhtml' xmlns:b='http://www.google.com/2005/gml/b' xmlns:data='http://www.google.com/2005/gml/data' xmlns:expr='http://www.google.com/2005/gml/expr'><b:attr name='xmlns' value=''/><b:attr name='xmlns:b' value=''/><b:attr name='xmlns:expr' value=''/><b:attr name='xmlns:data' value=''/>
+<b:attr expr:value='data:blog.locale.language' name='lang'/>
+
+<b:eval expr='&quot;&lt;head&gt;&quot;'/>
+  <b:comment><!--[ <head> ]--></b:comment>
+
+  <b:comment><!--[ Meta for browser ]--></b:comment>
+  <meta expr:charset='data:blog.encoding'/>
+  <meta content='IE=edge' http-equiv='X-UA-Compatible'/>
+  <meta content='width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes' name='viewport'/>
+
+  <title><data:blog.title/></title>
+
+  <link expr:href='data:blog.blogspotFaviconUrl' rel='icon' type='image/x-icon'/>
+  <link expr:href='data:blog.blogspotFaviconUrl' rel='shortcut icon' type='image/x-icon'/>
+
+  <b:if cond='data:blog.view contains &quot;-DevServer&quot; or data:blog.view contains &quot;-PreviewServer&quot;'>
+    <!--blogger-plugin:head:begin--><!--blogger-plugin:head:end-->
+
+    <b:else/>
+    <b:comment><!--blogger-plugin:head:begin--></b:comment><b:comment><!--blogger-plugin:head:end--></b:comment>
+  </b:if>
+
+  <b:if cond='false'><b:skin><![CDATA[]]></b:skin></b:if>
+
+  <b:comment><!--[ </head> ]--></b:comment>
+<b:eval expr='&quot;&lt;/head&gt;&quot;'/>
+
+<b:eval expr='&quot;&lt;body&gt;&quot;'/>
+  <b:comment><!--[ <body> ]--></b:comment>
+
+  <div id='root'/>
+  <div id='app'/>
+
+  <b:section id='blogger_section' showaddelement='false'/>
+
+  <b:comment><!--[ Wraps unnecessary contents in textarea ]--></b:comment>
+  <b:eval expr='&quot;&lt;textarea id=&apos;theme_textarea&apos; disabled=&apos;&apos; readonly=&apos;&apos; aria-hidden=&apos;true&apos; class=&apos;hidden notranslate&apos; hidden=&apos;&apos;&gt;&quot;'/><head/><body/><b:eval expr='&quot;&lt;/textarea&gt;&quot;'/>
+
+  <b:comment><!--[ </body> ]--></b:comment>
+<b:eval expr='&quot;&lt;/body&gt;&quot;'/>
+
+</html>
