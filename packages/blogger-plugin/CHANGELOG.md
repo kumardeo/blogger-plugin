@@ -1,5 +1,11 @@
 # blogger-plugin
 
+## 0.0.4
+
+### Patch Changes
+
+- [`7c5f274`](https://github.com/kumardeo/blogger-plugin/commit/7c5f274a71a0895c0d96116000e62489722dc7b1) Thanks [@kumardeo](https://github.com/kumardeo)! - feat: generate `template-tags.xml`, it will only contain necessary tags and not contents from input `template.xml`
+
 ## 0.0.3
 
 ### Patch Changes
