@@ -1,5 +1,12 @@
 # blogger-plugin
 
+## 0.0.3
+
+### Patch Changes
+
+- [`60b7314`](https://github.com/kumardeo/blogger-plugin/commit/60b7314634bbe0f3cd1c48d0baafc7bef9ca4949) Thanks [@kumardeo](https://github.com/kumardeo)! - feat: support vite 8
+  feat: add experimental tailwind css support
+
 ## 0.0.2
 
 ### Patch Changes
