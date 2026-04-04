@@ -118,7 +118,7 @@ function createBloggerPluginContext(userOptions: BloggerPluginOptions): BloggerP
       const name = path.basename(this.entry, path.extname(this.entry));
       this.input = `virtual:blogger-plugin/${name}.html`;
       this.html = `<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <!--head-->
   <script type="module" src="/${path.relative(this.root, this.entry).replace('\\', '/')}"></script>
@@ -334,10 +334,10 @@ export default function blogger(userOptions: BloggerPluginOptions): Plugin {
         return;
       }
 
-      const afterHeadBegin = match[2];
-      const beforeHeadEnd = match[3];
-      // const afterBodyBegin = match[4];
-      // const beforeBodyEnd = match[5];
+      const afterHeadBegin = match[1];
+      const beforeHeadEnd = match[2];
+      const afterBodyBegin = match[3];
+      const beforeBodyEnd = match[4];
 
       const headContent = (afterHeadBegin + beforeHeadEnd)
         // boolean attributes to empty string
@@ -365,7 +365,31 @@ export default function blogger(userOptions: BloggerPluginOptions): Plugin {
       const originalTemplateXmlContent = fs.readFileSync(ctx.template, 'utf8');
       const modifiedTemplateXmlContent = replaceBloggerPluginHeadComment(originalTemplateXmlContent, headContent, true);
 
+      const templateTagsXmlContent = `<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE html>
+<html>
+<head>
+  <!--head:afterbegin:begin-->
+
+  <!--head:afterbegin:end-->
+
+  <!--head:beforeend:begin-->
+  ${headContent}
+  <!--head:beforeend:end-->
+</head>
+<body>
+  <!--body:afterbegin:begin-->
+  ${afterBodyBegin.trim()}
+  <!--body:afterbegin:end-->
+
+  <!--body:beforeend:begin-->
+  ${beforeBodyEnd.trim()}
+  <!--body:beforeend:end-->
+</body>
+</html>`;
+
       fs.writeFileSync(path.resolve(ctx.viteConfig.build.outDir, 'template.xml'), modifiedTemplateXmlContent);
+      fs.writeFileSync(path.resolve(ctx.viteConfig.build.outDir, 'template-tags.xml'), templateTagsXmlContent);
     },
     closeBundle() {
       const htmlDir = path.resolve(ctx.viteConfig.build.outDir, 'virtual:blogger-plugin');
