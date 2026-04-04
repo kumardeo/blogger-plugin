@@ -1,4 +1,4 @@
-import type { IncomingHttpHeaders, OutgoingHttpHeaders } from 'node:http';
+import type { IncomingHttpHeaders, IncomingMessage, OutgoingHttpHeaders } from 'node:http';
 
 export function escapeHtml(str: string) {
   if (str === '') return '';
@@ -40,27 +40,23 @@ export function toWebHeaders(httpHeaders: IncomingHttpHeaders | OutgoingHttpHead
   return headers;
 }
 
+export const BLOGGER_PLUGIN_HEAD_COMMENT_REGEX = /(<!--blogger-plugin:head:begin-->)([\s\S]*?)(<!--blogger-plugin:head:end-->)/;
+
+export const BLOGGER_PLUGIN_HEAD_BCOMMENT_REGEX =
+  /(<b:comment><!--blogger-plugin:head:begin--><\/b:comment>)([\s\S]*?)(<b:comment><!--blogger-plugin:head:end--><\/b:comment>)/;
+
 export function replaceBloggerPluginHeadComment(input: string, replacement: string, bcomment = false) {
   if (bcomment) {
-    return input.replace(
-      /<b:comment><!--blogger-plugin:head:begin--><\/b:comment>[\s\S]*?<b:comment><!--blogger-plugin:head:end--><\/b:comment>/,
-      `<b:comment><!--blogger-plugin:head:begin--></b:comment>${replacement}<b:comment><!--blogger-plugin:head:end--></b:comment>`,
-    );
+    return input.replace(BLOGGER_PLUGIN_HEAD_BCOMMENT_REGEX, (_, start: string, _content: string, end: string) => `${start}${replacement}${end}`);
   }
-  return input.replace(
-    /<!--blogger-plugin:head:begin-->[\s\S]*?<!--blogger-plugin:head:end-->/,
-    `<!--blogger-plugin:head:begin-->${replacement}<!--blogger-plugin:head:end-->`,
-  );
+  return input.replace(BLOGGER_PLUGIN_HEAD_COMMENT_REGEX, (_, start: string, _content: string, end: string) => `${start}${replacement}${end}`);
 }
 
 export function getBloggerPluginHeadComment(input: string, bcomment = false) {
   if (bcomment) {
-    return (
-      input.match(/<b:comment><!--blogger-plugin:head:begin--><\/b:comment>([\s\S]*?)<b:comment><!--blogger-plugin:head:end--><\/b:comment>/)?.[1] ??
-      null
-    );
+    return input.match(BLOGGER_PLUGIN_HEAD_BCOMMENT_REGEX)?.[2] ?? null;
   }
-  return input.match(/<!--blogger-plugin:head:begin-->([\s\S]*?)<!--blogger-plugin:head:end-->/)?.[1] ?? null;
+  return input.match(BLOGGER_PLUGIN_HEAD_COMMENT_REGEX)?.[2] ?? null;
 }
 
 export function replaceHost(input: string, oldHost: string, newHost: string, newProtocol?: string) {
@@ -68,6 +64,39 @@ export function replaceHost(input: string, oldHost: string, newHost: string, new
     new RegExp(`(https?:)?(\\/\\/|\\\\/\\\\/)${escapeRegex(oldHost)}`, 'g'),
     (_, protocol, slash) => `${protocol ? (newProtocol ?? protocol) : ''}${slash ?? ''}${newHost}`,
   );
+}
+
+export function getRequestUrl(req: IncomingMessage): URL | null {
+  const xForwardedProtoHeader = req.headers['x-forwarded-proto'];
+  const xForwardedHostHeader = req.headers['x-forwarded-host'];
+  const hostHeader = req.headers.host;
+
+  const protocol = Array.isArray(xForwardedProtoHeader)
+    ? xForwardedProtoHeader[0]
+    : (xForwardedProtoHeader ?? (req.socket && 'encrypted' in req.socket && req.socket.encrypted ? 'https' : 'http'));
+  const host = Array.isArray(xForwardedHostHeader) ? xForwardedHostHeader[0] : (xForwardedHostHeader ?? hostHeader);
+
+  if (host && req.url) {
+    return new URL(`${protocol}://${host}${req.url}`);
+  }
+
+  return null;
+}
+
+export function isBloggerPath(path: string) {
+  return (
+    path === '/' ||
+    path === '/search' ||
+    /^\/search\/label(\/[^/]+)?\/?$/.test(path) ||
+    /^p\/.+\.html$/.test(path) ||
+    /^\/\d{4}\/\d{2}(\/?|\/[^/\s]+\.html)$/.test(path)
+  );
+}
+
+const TAILWIND_PLUGIN_NAMES = new Set(['@tailwindcss/vite:scan']);
+
+export function isTailwindPlugin(plugin: { name: string }): boolean {
+  return TAILWIND_PLUGIN_NAMES.has(plugin.name);
 }
 
 export function errorHtml(reqUrl: string) {

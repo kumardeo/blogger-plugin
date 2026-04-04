@@ -1,26 +1,133 @@
-import fs from 'node:fs';
-import path from 'node:path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Readable } from 'node:stream';
-import type { MinimalPluginContextWithoutEnvironment, Plugin, PreviewServer, ResolvedConfig, ViteDevServer } from 'vite';
-import { type BloggerPluginOptions, BloggerPluginOptionsSchema } from './schema';
-import { errorHtml, escapeHtml, getBloggerPluginHeadComment, replaceBloggerPluginHeadComment, replaceHost, toWebHeaders } from './utils';
+import {
+  type MinimalPluginContextWithoutEnvironment,
+  type Plugin,
+  type PreviewServer,
+  type ResolvedConfig,
+  type UserConfig,
+  type ViteDevServer,
+  version,
+} from 'vite';
+import { clearTailwindCache, removeTailwindCache, updateTailwindCache } from './cache';
+import { DEFAULT_ENTRIES, DEFAULT_TEMPLATES } from './constants';
+import {
+  errorHtml,
+  escapeHtml,
+  getBloggerPluginHeadComment,
+  getRequestUrl,
+  isTailwindPlugin,
+  replaceBloggerPluginHeadComment,
+  replaceHost,
+  toWebHeaders,
+} from './utils';
 
-const DEFAULT_ENTRIES = ['index.tsx', 'index.ts', 'index.jsx', 'index.js', 'main.tsx', 'main.ts', 'main.jsx', 'main.js'];
-const DEFAULT_TEMPLATES = ['template.xml', 'theme.xml'];
-
-interface PluginContext {
-  viteConfig: ResolvedConfig;
+interface BloggerPluginContext {
+  root: string;
   entry: string;
   template: string;
-  options: BloggerPluginOptions;
+  proxyBlog: URL;
+  viteConfig: ResolvedConfig;
+  tailwind: boolean;
+  input: string;
+  html: string;
+  resolve(root: UserConfig): void;
 }
 
-function createPluginContext(userOptions: BloggerPluginOptions): PluginContext {
+function createBloggerPluginContext(userOptions: BloggerPluginOptions): BloggerPluginContext {
+  if (typeof userOptions.entry !== 'undefined' && typeof userOptions.entry !== 'string') {
+    throw new Error("Option 'entry' must be a string");
+  }
+  if (typeof userOptions.template !== 'undefined' && typeof userOptions.template !== 'string') {
+    throw new Error("Option 'template' must be a string");
+  }
+  if (typeof userOptions.proxyBlog !== 'string') {
+    throw new Error("Option 'proxyBlog' must be a string");
+  }
+  let proxyBlog: URL;
+  try {
+    proxyBlog = new URL(userOptions.proxyBlog);
+  } catch {
+    throw new Error("Option 'proxyBlog' must be a valid url");
+  }
   return {
-    viteConfig: undefined as unknown as ResolvedConfig,
+    root: process.cwd(),
     entry: undefined as unknown as string,
     template: undefined as unknown as string,
-    options: BloggerPluginOptionsSchema.parse(userOptions),
+    proxyBlog,
+    viteConfig: undefined as unknown as ResolvedConfig,
+    tailwind: false,
+    input: undefined as unknown as string,
+    html: undefined as unknown as string,
+    resolve(config: UserConfig) {
+      this.root = config.root ? path.resolve(config.root) : this.root;
+
+      if (userOptions.entry) {
+        const providedPath = path.resolve(this.root, userOptions.entry);
+        if (fs.existsSync(providedPath)) {
+          this.entry = providedPath;
+        } else {
+          throw new Error(`Provided entry file does not exist: ${providedPath}`);
+        }
+      } else {
+        for (const file of DEFAULT_ENTRIES) {
+          const fullPath = path.resolve(this.root, 'src', file);
+          if (fs.existsSync(fullPath)) {
+            this.entry = fullPath;
+            break;
+          }
+        }
+
+        if (!this.entry) {
+          throw new Error(
+            'No entry file found in "src".\n' +
+              `Tried: ${DEFAULT_ENTRIES.map((c) => path.join('src', c)).join(', ')}\n` +
+              '👉 Tip: You can pass a custom entry like:\n' +
+              '   blogger({ entry: "src/my-entry.ts" })',
+          );
+        }
+      }
+
+      if (userOptions.template) {
+        const providedPath = path.resolve(this.root, userOptions.template);
+        if (fs.existsSync(providedPath)) {
+          this.template = providedPath;
+        } else {
+          throw new Error(`Provided template file does not exist: ${providedPath}`);
+        }
+      } else {
+        for (const file of DEFAULT_TEMPLATES) {
+          const fullPath = path.resolve(this.root, 'src', file);
+          if (fs.existsSync(fullPath)) {
+            this.template = fullPath;
+            break;
+          }
+        }
+
+        if (!this.template) {
+          throw new Error(
+            'No template file found in "src".\n' +
+              `Tried: ${DEFAULT_TEMPLATES.map((c) => path.join('src', c)).join(', ')}\n` +
+              '👉 Tip: You can pass a custom template like:\n' +
+              '   blogger({ template: "src/my-template.xml" })',
+          );
+        }
+      }
+
+      const name = path.basename(this.entry, path.extname(this.entry));
+      this.input = `virtual:blogger-plugin/${name}.html`;
+      this.html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!--head-->
+  <script type="module" src="/${path.relative(this.root, this.entry).replace('\\', '/')}"></script>
+</head>
+<body>
+  <!--body-->
+</body>
+</html>`;
+    },
   };
 }
 
@@ -28,23 +135,25 @@ function isViteDevServer(server: ViteDevServer | PreviewServer): server is ViteD
   return 'hot' in server && 'transformRequest' in server && 'transformIndexHtml' in server;
 }
 
-function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: PluginContext, _this: MinimalPluginContextWithoutEnvironment) {
+function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: BloggerPluginContext, _this: MinimalPluginContextWithoutEnvironment) {
   return () => {
     server.httpServer?.once('listening', () => {
       setTimeout(() => {
-        _this.info(`Unhandled requests will be proxied to ${ctx.options.proxyBlog}`);
+        _this.info(`Unhandled requests will be proxied to ${ctx.proxyBlog.origin}`);
       }, 0);
     });
 
     server.middlewares.use(async (req, res, next) => {
-      if (!req.url || !req.originalUrl) {
+      const url = getRequestUrl(req);
+
+      if (!req.url || !req.originalUrl || !url) {
         next();
         return;
       }
 
       const start = Date.now();
 
-      const proxyUrl = new URL(req.originalUrl, ctx.options.proxyBlog);
+      const proxyUrl = new URL(`${ctx.proxyBlog.origin}${req.originalUrl}`);
 
       const viewParam = proxyUrl.searchParams.get('view');
       proxyUrl.searchParams.set('view', `${isViteDevServer(server) ? '-DevServer' : '-PreviewServer'}${viewParam?.startsWith('-') ? viewParam : ''}`);
@@ -70,29 +179,24 @@ function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: PluginC
       });
 
       if (proxyResponse) {
-        const requestProtocol = `${(req.headers['x-forwarded-proto'] as string) || (req.socket && 'encrypted' in req.socket && req.socket.encrypted ? 'https' : 'http')}:`;
-        const requestHost = (req.headers['x-forwarded-host'] as string) || req.headers.host;
-
         res.statusCode = proxyResponse.status;
         res.statusMessage = proxyResponse.statusText;
 
         proxyResponse.headers.forEach((value, key) => {
           if (key === 'location') {
-            const redirectUrl = new URL(value, requestHost ? `${requestProtocol}//${requestHost}${req.originalUrl}` : proxyUrl.href);
-            if ((requestHost && redirectUrl.host === requestHost) || redirectUrl.host === proxyUrl.host) {
-              if (requestHost && requestProtocol) {
-                redirectUrl.host = requestHost;
-                redirectUrl.protocol = requestProtocol;
-              }
+            const redirectUrl = new URL(value, proxyUrl);
+            if (redirectUrl.host === url.host || redirectUrl.host === proxyUrl.host) {
+              redirectUrl.host = url.host;
+              redirectUrl.protocol = url.protocol;
               const viewParam = redirectUrl.searchParams.get('view')?.replaceAll('-DevServer', '').replaceAll('-PreviewServer', '');
               if (viewParam) {
                 redirectUrl.searchParams.set('view', viewParam);
               } else {
                 redirectUrl.searchParams.delete('view');
               }
-              res.setHeader(key, redirectUrl.pathname + redirectUrl.search + redirectUrl.hash);
+              res.setHeader('location', redirectUrl.pathname + redirectUrl.search + redirectUrl.hash);
             } else {
-              res.setHeader(key, redirectUrl.href);
+              res.setHeader('location', redirectUrl.href);
             }
           } else if (['content-type', 'x-robots-tag', 'date', 'location'].includes(key)) {
             res.setHeader(key, value);
@@ -104,14 +208,16 @@ function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: PluginC
         if (contentType?.startsWith('text/html')) {
           let htmlTemplateContent = await proxyResponse.text();
 
-          if (requestHost && requestProtocol) {
-            htmlTemplateContent = replaceHost(htmlTemplateContent, proxyUrl.host, requestHost, requestProtocol);
+          if (ctx.tailwind && isViteDevServer(server)) {
+            await updateTailwindCache(ctx.root, htmlTemplateContent);
           }
+
+          htmlTemplateContent = replaceHost(htmlTemplateContent, proxyUrl.host, url.host, url.protocol);
 
           if (isViteDevServer(server)) {
             const htmlTags: string[] = [];
 
-            htmlTags.push(`<script src='/${escapeHtml(path.relative(ctx.viteConfig.root, ctx.entry))}' type='module'></script>`);
+            htmlTags.push(`<script type='module' src='/${escapeHtml(path.relative(ctx.root, ctx.entry).replace('\\', '/'))}'></script>`);
 
             const template = await server.transformIndexHtml(
               req.url,
@@ -129,10 +235,10 @@ function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: PluginC
 
             res.end(template);
           }
-        } else if (requestHost && requestProtocol && contentType && /^(text\/)|(application\/(.*\+)?(xml|json))/.test(contentType)) {
+        } else if (contentType && /^(text\/)|(application\/(.*\+)?(xml|json))/.test(contentType)) {
           const content = await proxyResponse.text();
 
-          res.end(replaceHost(content, proxyUrl.host, requestHost, requestProtocol));
+          res.end(replaceHost(content, proxyUrl.host, url.host, url.protocol));
         } else {
           res.end(new Uint8Array(await proxyResponse.arrayBuffer()));
         }
@@ -152,110 +258,119 @@ function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: PluginC
   };
 }
 
+export interface BloggerPluginOptions {
+  entry?: string;
+  template?: string;
+  proxyBlog: string;
+}
+
 export default function blogger(userOptions: BloggerPluginOptions): Plugin {
-  const ctx = createPluginContext(userOptions);
+  const ctx = createBloggerPluginContext(userOptions);
 
   return {
     name: 'vite-plugin-blogger',
     config(config) {
-      const root = config.root || process.cwd();
+      // resolve plugin context
+      ctx.resolve(config);
 
-      let entry: string | undefined;
-      let template: string | undefined;
-
-      if (ctx.options.entry) {
-        const providedPath = path.resolve(root, ctx.options.entry);
-        if (fs.existsSync(providedPath)) {
-          entry = providedPath;
-        } else {
-          this.error(`Provided entry file does not exist: ${providedPath}`);
-        }
+      // modify vite config
+      config.build ||= {};
+      const major = Number(version.split('.')[0]);
+      const bundlerKey = (major >= 8 ? 'rolldownOptions' : 'rollupOptions') as 'rollupOptions';
+      config.build[bundlerKey] ||= {};
+      const bundlerOptions = config.build[bundlerKey];
+      if (Array.isArray(bundlerOptions.input)) {
+        bundlerOptions.input = [...bundlerOptions.input, ctx.input];
+      } else if (typeof bundlerOptions.input === 'object' && bundlerOptions.input !== null) {
+        bundlerOptions.input[ctx.input] = ctx.input;
       } else {
-        for (const file of DEFAULT_ENTRIES) {
-          const fullPath = path.resolve(root, 'src', file);
-          if (fs.existsSync(fullPath)) {
-            entry = fullPath;
-            break;
-          }
-        }
-
-        if (!entry) {
-          this.error(
-            'No entry file found in "src".\n' +
-              `Tried: ${DEFAULT_ENTRIES.map((c) => path.join('src', c)).join(', ')}\n` +
-              '👉 Tip: You can pass a custom entry like:\n' +
-              '   blogger({ entry: "src/my-entry.ts" })',
-          );
-        }
+        bundlerOptions.input = ctx.input;
       }
 
-      if (ctx.options.template) {
-        const providedPath = path.resolve(root, ctx.options.template);
-        if (fs.existsSync(providedPath)) {
-          template = providedPath;
-        } else {
-          this.error(`Provided template file does not exist: ${providedPath}`);
-        }
-      } else {
-        for (const file of DEFAULT_TEMPLATES) {
-          const fullPath = path.resolve(root, 'src', file);
-          if (fs.existsSync(fullPath)) {
-            template = fullPath;
-            break;
-          }
-        }
-
-        if (!template) {
-          this.error(
-            'No template file found in "src".\n' +
-              `Tried: ${DEFAULT_TEMPLATES.map((c) => path.join('src', c)).join(', ')}\n` +
-              '👉 Tip: You can pass a custom template like:\n' +
-              '   blogger({ template: "src/my-template.xml" })',
-          );
-        }
-      }
-
-      // populate plugin context
-      ctx.entry = entry as string;
-      ctx.template = template as string;
-
-      // override vite config
-      config.build ??= {};
-      config.build.rollupOptions ??= {};
-      config.build.rollupOptions.input = entry;
-
+      const originalTemplateXmlContent = fs.readFileSync(ctx.template, 'utf8');
       // remove contents between comments from template
-      const xmlTemplateContent = fs.readFileSync(ctx.template, 'utf8');
-      fs.writeFileSync(ctx.template, replaceBloggerPluginHeadComment(replaceBloggerPluginHeadComment(xmlTemplateContent, ''), '', true), {
-        encoding: 'utf8',
-      });
+      const modifiedTemplateXmlContent = replaceBloggerPluginHeadComment(replaceBloggerPluginHeadComment(originalTemplateXmlContent, ''), '', true);
+
+      fs.writeFileSync(ctx.template, modifiedTemplateXmlContent, 'utf-8');
     },
     configResolved(config) {
       ctx.viteConfig = config;
-    },
-    generateBundle(_options, bundle) {
-      for (const output of Object.values(bundle)) {
-        if (output.type !== 'chunk' || !output.isEntry) {
-          continue;
+      ctx.tailwind = config.plugins.flat(Number.POSITIVE_INFINITY).some((plugin) => isTailwindPlugin(plugin));
+
+      if (ctx.tailwind) {
+        clearTailwindCache(ctx.root);
+
+        if (config.command === 'build') {
+          updateTailwindCache(ctx.root, fs.readFileSync(ctx.template, 'utf-8'));
         }
+      } else {
+        removeTailwindCache(ctx.root);
+      }
+    },
+    resolveId(source) {
+      if (source === ctx.input) {
+        return ctx.input;
+      }
+    },
+    load(id) {
+      if (id === ctx.input) {
+        return ctx.html;
+      }
+    },
+    writeBundle(_, bundle) {
+      if (!(ctx.input in bundle)) {
+        return;
+      }
+      const asset = bundle[ctx.input];
+      delete bundle[ctx.input];
 
-        const xmlTemplateContent = fs.readFileSync(ctx.template, 'utf8');
+      if (asset.type !== 'asset' || typeof asset.source !== 'string') {
+        return;
+      }
+      const regex =
+        /<!DOCTYPE html>\s*<html[^>]*>\s*<head>([\s\S]*?)<!--head-->([\s\S]*?)<\/head>\s*<body>([\s\S]*?)<!--body-->([\s\S]*?)<\/body>\s*<\/html>/i;
+      const match = asset.source.match(regex);
+      if (!match) {
+        return;
+      }
 
-        const htmlTags: string[] = [];
-        output.viteMetadata?.importedCss.forEach((value) => {
-          htmlTags.push(`<link crossorigin='anonymous' href='${escapeHtml(ctx.viteConfig.base + value)}' rel='stylesheet'/>`);
-        });
-        htmlTags.push(`<script crossorigin='anonymous' src='${escapeHtml(ctx.viteConfig.base + output.fileName)}' type='module'></script>`);
+      const afterHeadBegin = match[2];
+      const beforeHeadEnd = match[3];
+      // const afterBodyBegin = match[4];
+      // const beforeBodyEnd = match[5];
 
-        const template = replaceBloggerPluginHeadComment(xmlTemplateContent, htmlTags.join(''), true);
+      const headContent = (afterHeadBegin + beforeHeadEnd)
+        // boolean attributes to empty string
+        .replace(/\b(crossorigin|defer|async|disabled|checked)\b(?!=)/g, (_, $1: string) => `${$1}=""`)
+        // convert attributes to single quotes safely
+        .replace(/(\w+)=(".*?"|'.*?')/g, (_, $1: string, $2: string) => {
+          const v = $2
+            // remove quotes
+            .slice(1, -1)
+            // escape special XML chars
+            .replace(/&/g, '&amp;')
+            .replace(/'/g, '&apos;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+          return `${$1}='${v}'`;
+        })
+        // self-close void tags
+        .replace(/<(link|meta|img|br|hr|input)([^>]*?)>/gi, (_, $1: string, $2: string) => `<${$1}${$2} />`)
+        // remove whitespace between tags
+        .replace(/>\s+</g, '><')
+        // trim overall
+        .trim();
 
-        this.emitFile({
-          type: 'asset',
-          fileName: 'template.xml',
-          source: template,
-        });
+      const originalTemplateXmlContent = fs.readFileSync(ctx.template, 'utf8');
+      const modifiedTemplateXmlContent = replaceBloggerPluginHeadComment(originalTemplateXmlContent, headContent, true);
 
-        break;
+      fs.writeFileSync(path.resolve(ctx.viteConfig.build.outDir, 'template.xml'), modifiedTemplateXmlContent);
+    },
+    closeBundle() {
+      const htmlDir = path.resolve(ctx.viteConfig.build.outDir, 'virtual:blogger-plugin');
+      if (fs.existsSync(htmlDir)) {
+        fs.rmSync(htmlDir, { recursive: true });
       }
     },
     configureServer(server) {
@@ -266,5 +381,3 @@ export default function blogger(userOptions: BloggerPluginOptions): Plugin {
     },
   };
 }
-
-export type { BloggerPluginOptions } from './schema';
