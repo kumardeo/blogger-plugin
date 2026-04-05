@@ -1,4 +1,5 @@
-import type { IncomingHttpHeaders, IncomingMessage, OutgoingHttpHeaders } from 'node:http';
+import type { IncomingHttpHeaders, OutgoingHttpHeaders } from 'node:http';
+import type { Connect } from 'vite';
 
 export function escapeHtml(str: string) {
   if (str === '') return '';
@@ -66,7 +67,7 @@ export function replaceHost(input: string, oldHost: string, newHost: string, new
   );
 }
 
-export function getRequestUrl(req: IncomingMessage): URL | null {
+export function getRequestUrl(req: Connect.IncomingMessage): URL | null {
   const xForwardedProtoHeader = req.headers['x-forwarded-proto'];
   const xForwardedHostHeader = req.headers['x-forwarded-host'];
   const hostHeader = req.headers.host;
@@ -76,8 +77,8 @@ export function getRequestUrl(req: IncomingMessage): URL | null {
     : (xForwardedProtoHeader ?? (req.socket && 'encrypted' in req.socket && req.socket.encrypted ? 'https' : 'http'));
   const host = Array.isArray(xForwardedHostHeader) ? xForwardedHostHeader[0] : (xForwardedHostHeader ?? hostHeader);
 
-  if (host && req.url) {
-    return new URL(`${protocol}://${host}${req.url}`);
+  if (host && req.originalUrl) {
+    return new URL(`${protocol}://${host}${req.originalUrl}`);
   }
 
   return null;
