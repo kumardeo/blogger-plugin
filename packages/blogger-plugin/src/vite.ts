@@ -8,13 +8,12 @@ import {
   type ResolvedConfig,
   type UserConfig,
   type ViteDevServer,
-  version,
+  version as viteVersion,
 } from 'vite';
 import { clearTailwindCache, removeTailwindCache, updateTailwindCache } from './cache';
-import { DEFAULT_ENTRIES, DEFAULT_TEMPLATES } from './constants';
+import { DEFAULT_MODULES, DEFAULT_TEMPLATES } from './constants';
 import {
   errorHtml,
-  escapeHtml,
   getBloggerPluginHeadComment,
   getRequestUrl,
   isTailwindPlugin,
@@ -23,112 +22,144 @@ import {
   toWebHeaders,
 } from './utils';
 
-interface BloggerPluginContext {
+const viteMajor = Number(viteVersion.split('.')[0]);
+const bundlerKey = (viteMajor >= 8 ? 'rolldownOptions' : 'rollupOptions') as 'rollupOptions';
+
+class BloggerPluginContext {
+  options: BloggerPluginOptions;
   root: string;
-  entry: string;
+  modules: string[];
+  styles: string[];
   template: string;
+  name: string;
   proxyBlog: URL;
   viteConfig: ResolvedConfig;
   tailwind: boolean;
   input: string;
   html: string;
-  resolve(root: UserConfig): void;
-}
+  headTags: string[];
 
-function createBloggerPluginContext(userOptions: BloggerPluginOptions): BloggerPluginContext {
-  if (typeof userOptions.entry !== 'undefined' && typeof userOptions.entry !== 'string') {
-    throw new Error("Option 'entry' must be a string");
-  }
-  if (typeof userOptions.template !== 'undefined' && typeof userOptions.template !== 'string') {
-    throw new Error("Option 'template' must be a string");
-  }
-  if (typeof userOptions.proxyBlog !== 'string') {
-    throw new Error("Option 'proxyBlog' must be a string");
-  }
-  let proxyBlog: URL;
-  try {
-    proxyBlog = new URL(userOptions.proxyBlog);
-  } catch {
-    throw new Error("Option 'proxyBlog' must be a valid url");
-  }
-  return {
-    root: process.cwd(),
-    entry: undefined as unknown as string,
-    template: undefined as unknown as string,
-    proxyBlog,
-    viteConfig: undefined as unknown as ResolvedConfig,
-    tailwind: false,
-    input: undefined as unknown as string,
-    html: undefined as unknown as string,
-    resolve(config: UserConfig) {
-      this.root = config.root ? path.resolve(config.root) : this.root;
+  constructor(options: BloggerPluginOptions) {
+    if (typeof options.template !== 'undefined' && typeof options.template !== 'string') {
+      throw new Error("Option 'template' must be a string");
+    }
+    if (typeof options.modules !== 'undefined' && !Array.isArray(options.modules)) {
+      throw new Error("Option 'modules' must be an array");
+    }
+    if (typeof options.styles !== 'undefined' && !Array.isArray(options.styles)) {
+      throw new Error("Option 'styles' must be an array");
+    }
+    if (typeof options.proxyBlog !== 'string') {
+      throw new Error("Option 'proxyBlog' must be a string");
+    }
+    let proxyBlog: URL;
+    try {
+      proxyBlog = new URL(options.proxyBlog);
+    } catch {
+      throw new Error("Option 'proxyBlog' must be a valid url");
+    }
 
-      if (userOptions.entry) {
-        const providedPath = path.resolve(this.root, userOptions.entry);
-        if (fs.existsSync(providedPath)) {
-          this.entry = providedPath;
+    this.options = options;
+    this.root = process.cwd();
+    this.modules = [];
+    this.styles = [];
+    this.template = undefined as unknown as string;
+    this.name = undefined as unknown as string;
+    this.proxyBlog = proxyBlog;
+    this.viteConfig = undefined as unknown as ResolvedConfig;
+    this.tailwind = false;
+    this.input = undefined as unknown as string;
+    this.headTags = [];
+    this.html = undefined as unknown as string;
+  }
+
+  resolve(config: UserConfig) {
+    this.root = config.root ? path.resolve(config.root) : this.root;
+
+    if (this.options.modules) {
+      for (let i = 0; i < this.options.modules.length; i++) {
+        const module = this.options.modules[i];
+        const modulePath = path.resolve(this.root, module);
+        if (this.modules.includes(modulePath)) {
+          continue;
+        }
+        if (fs.existsSync(modulePath)) {
+          this.modules.push(modulePath);
         } else {
-          throw new Error(`Provided entry file does not exist: ${providedPath}`);
+          throw new Error(`The path provided at modules[${i}] does not exist: ${modulePath}`);
         }
-      } else {
-        for (const file of DEFAULT_ENTRIES) {
-          const fullPath = path.resolve(this.root, 'src', file);
-          if (fs.existsSync(fullPath)) {
-            this.entry = fullPath;
-            break;
-          }
+      }
+    } else {
+      for (const module of DEFAULT_MODULES) {
+        const modulePath = path.resolve(this.root, module);
+        if (fs.existsSync(modulePath)) {
+          this.modules.push(modulePath);
+          break;
         }
+      }
+    }
 
-        if (!this.entry) {
-          throw new Error(
-            'No entry file found in "src".\n' +
-              `Tried: ${DEFAULT_ENTRIES.map((c) => path.join('src', c)).join(', ')}\n` +
-              '👉 Tip: You can pass a custom entry like:\n' +
-              '   blogger({ entry: "src/my-entry.ts" })',
-          );
+    if (this.options.styles) {
+      for (let i = 0; i < this.options.styles.length; i++) {
+        const style = this.options.styles[i];
+        const stylePath = path.resolve(this.root, style);
+        if (this.styles.includes(stylePath)) {
+          continue;
+        }
+        if (fs.existsSync(stylePath)) {
+          this.styles.push(stylePath);
+        } else {
+          throw new Error(`The path provided at styles[${i}] does not exist: ${stylePath}`);
+        }
+      }
+    }
+
+    if (this.options.template) {
+      const templatePath = path.resolve(this.root, this.options.template);
+      if (fs.existsSync(templatePath)) {
+        this.template = templatePath;
+      } else {
+        throw new Error(`Provided template file does not exist: ${templatePath}`);
+      }
+    } else {
+      for (const file of DEFAULT_TEMPLATES) {
+        const fullPath = path.resolve(this.root, file);
+        if (fs.existsSync(fullPath)) {
+          this.template = fullPath;
+          break;
         }
       }
 
-      if (userOptions.template) {
-        const providedPath = path.resolve(this.root, userOptions.template);
-        if (fs.existsSync(providedPath)) {
-          this.template = providedPath;
-        } else {
-          throw new Error(`Provided template file does not exist: ${providedPath}`);
-        }
-      } else {
-        for (const file of DEFAULT_TEMPLATES) {
-          const fullPath = path.resolve(this.root, 'src', file);
-          if (fs.existsSync(fullPath)) {
-            this.template = fullPath;
-            break;
-          }
-        }
-
-        if (!this.template) {
-          throw new Error(
-            'No template file found in "src".\n' +
-              `Tried: ${DEFAULT_TEMPLATES.map((c) => path.join('src', c)).join(', ')}\n` +
-              '👉 Tip: You can pass a custom template like:\n' +
-              '   blogger({ template: "src/my-template.xml" })',
-          );
-        }
+      if (!this.template) {
+        throw new Error(
+          'No template file found.\n' +
+            `Tried: ${DEFAULT_TEMPLATES.join(', ')}\n` +
+            '👉 Tip: You can pass a custom template as shown:\n' +
+            '   blogger({ template: "src/my-template.xml" })',
+        );
       }
+    }
 
-      const name = path.basename(this.entry, path.extname(this.entry));
-      this.input = `virtual:blogger-plugin/${name}.html`;
-      this.html = `<!DOCTYPE html>
+    this.name = path.basename(this.template, path.extname(this.template));
+
+    for (const modulePath of this.modules) {
+      this.headTags.push(`<script type="module" src="/${path.relative(this.root, modulePath).replaceAll('\\', '/')}"></script>`);
+    }
+    for (const stylePath of this.styles) {
+      this.headTags.push(`<link rel="stylesheet" href="/${path.relative(this.root, stylePath).replaceAll('\\', '/')}">`);
+    }
+
+    this.input = `virtual:blogger-plugin/${this.name}.html`;
+    this.html = `<!DOCTYPE html>
 <html>
 <head>
-  <!--head-->
-  <script type="module" src="/${path.relative(this.root, this.entry).replace('\\', '/')}"></script>
+  <!--head-->${this.headTags.length > 0 ? `\n  ${this.headTags.join('\n  ')}` : ''}
 </head>
 <body>
   <!--body-->
 </body>
 </html>`;
-    },
-  };
+  }
 }
 
 function isViteDevServer(server: ViteDevServer | PreviewServer): server is ViteDevServer {
@@ -136,6 +167,23 @@ function isViteDevServer(server: ViteDevServer | PreviewServer): server is ViteD
 }
 
 function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: BloggerPluginContext, _this: MinimalPluginContextWithoutEnvironment) {
+  const input = ctx.viteConfig.build[bundlerKey].input;
+  const htmlPathnames: string[] = [];
+  for (const entry of Array.isArray(input) ? input : typeof input === 'object' ? Object.values(input) : typeof input === 'string' ? [input] : []) {
+    if (entry === ctx.input) {
+      continue;
+    }
+    const entryPath = path.resolve(ctx.root, entry);
+    if (!entryPath.endsWith('.html')) {
+      continue;
+    }
+    const relativePath = path.relative(ctx.root, entry).replaceAll('\\', '/');
+    htmlPathnames.push(`/${relativePath}`);
+    if (relativePath.endsWith('index.html')) {
+      htmlPathnames.push(`/${relativePath.replace(/index\.html$/, '')}`);
+    }
+  }
+
   return () => {
     server.httpServer?.once('listening', () => {
       setTimeout(() => {
@@ -146,7 +194,7 @@ function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: Blogger
     server.middlewares.use(async (req, res, next) => {
       const url = getRequestUrl(req);
 
-      if (!req.url || !req.originalUrl || !url) {
+      if (!req.url || !req.originalUrl || !url || htmlPathnames.includes(url.pathname.replace(/\/+/g, '/'))) {
         next();
         return;
       }
@@ -215,13 +263,9 @@ function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: Blogger
           htmlTemplateContent = replaceHost(htmlTemplateContent, proxyUrl.host, url.host, url.protocol);
 
           if (isViteDevServer(server)) {
-            const htmlTags: string[] = [];
-
-            htmlTags.push(`<script type='module' src='/${escapeHtml(path.relative(ctx.root, ctx.entry).replace('\\', '/'))}'></script>`);
-
             const template = await server.transformIndexHtml(
               req.url,
-              replaceBloggerPluginHeadComment(htmlTemplateContent, htmlTags.join('')),
+              replaceBloggerPluginHeadComment(htmlTemplateContent, ctx.headTags.join('')),
               req.originalUrl,
             );
 
@@ -259,13 +303,14 @@ function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: Blogger
 }
 
 export interface BloggerPluginOptions {
-  entry?: string;
+  modules?: string[];
+  styles?: string[];
   template?: string;
   proxyBlog: string;
 }
 
 export default function blogger(userOptions: BloggerPluginOptions): Plugin {
-  const ctx = createBloggerPluginContext(userOptions);
+  const ctx = new BloggerPluginContext(userOptions);
 
   return {
     name: 'vite-plugin-blogger',
@@ -275,8 +320,6 @@ export default function blogger(userOptions: BloggerPluginOptions): Plugin {
 
       // modify vite config
       config.build ||= {};
-      const major = Number(version.split('.')[0]);
-      const bundlerKey = (major >= 8 ? 'rolldownOptions' : 'rollupOptions') as 'rollupOptions';
       config.build[bundlerKey] ||= {};
       const bundlerOptions = config.build[bundlerKey];
       if (Array.isArray(bundlerOptions.input)) {
