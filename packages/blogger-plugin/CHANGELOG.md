@@ -1,5 +1,13 @@
 # blogger-plugin
 
+## 0.0.5
+
+### Patch Changes
+
+- [`117d9dd`](https://github.com/kumardeo/blogger-plugin/commit/117d9dddcf637d4244ed74fb462a17f7bcdfd22c) Thanks [@kumardeo](https://github.com/kumardeo)! - chore: replace `entry` option with `modules`
+  feat: add `styles` option
+  fix: don't fallback to proxy blog if request pathname points to html entry
+
 ## 0.0.4
 
 ### Patch Changes
