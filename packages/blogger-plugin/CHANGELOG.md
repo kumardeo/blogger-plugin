@@ -1,5 +1,11 @@
 # blogger-plugin
 
+## 0.0.6
+
+### Patch Changes
+
+- [`6f48c39`](https://github.com/kumardeo/blogger-plugin/commit/6f48c39a2005e658ad3b30e33d9ccfb56052954d) Thanks [@kumardeo](https://github.com/kumardeo)! - fix: correctly construct request url
+
 ## 0.0.5
 
 ### Patch Changes
