@@ -76,16 +76,48 @@ export default defineConfig({
   plugins: [
     react(),
     blogger({
-      // Unhandled requests will be proxied to this Blogger blog
+      // Required: Unhandled requests will be proxied to this Blogger blog
       proxyBlog: "https://example.blogspot.com",
 
-      // (optional) Custom entry file path
+      // (optional) Custom entry module paths
       // Defaults to one of: src/{index|main}.{tsx|ts|jsx|js}
-      // entry: "src/my-entry.ts",
+      // modules: ["src/my-entry.ts"],
+
+      // (optional) Custom CSS file paths to inject into the template
+      // styles: ["src/custom-styles.css"],
 
       // (optional) Custom Blogger XML template path
-      // Defaults to one of: src/{template|theme}.xml
+      // Defaults to one of: {index|template|theme}.xml or src/{index|template|theme}.xml
       // template: "src/my-template.xml",
+    }),
+  ],
+});
+```
+
+### Configuration Options
+
+The `blogger()` plugin accepts the following options:
+
+| Option      | Type       | Default       | Description                                                                                                                                                     |
+| ----------- | ---------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `proxyBlog` | `string`   | **Required**  | The URL of your proxy Blogger blog. All unhandled requests during development and preview will be proxied to this blog.                                         |
+| `modules`   | `string[]` | Auto-detected | Custom entry module paths to include in your build. If not specified, the plugin will search for: `src/index.{tsx\|ts\|jsx\|js}`, `src/main.{tsx\|ts\|jsx\|js}` |
+| `styles`    | `string[]` | `undefined`   | Custom CSS file paths to inject into the template. Useful for global stylesheets or critical CSS.                                                               |
+| `template`  | `string`   | Auto-detected | Path to your Blogger XML template file. If not specified, the plugin will search for: `{index\|template\|theme}.xml`, `src/{index\|template\|theme}.xml`        |
+
+### Example with All Options
+
+```ts
+import blogger from "blogger-plugin/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [
+    blogger({
+      proxyBlog: "https://example.blogspot.com",
+      modules: ["src/main.tsx"],
+      styles: ["src/globals.css", "src/theme.css"],
+      template: "src/template.xml",
     }),
   ],
 });
