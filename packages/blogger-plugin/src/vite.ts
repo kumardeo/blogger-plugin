@@ -1,6 +1,5 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { Readable } from 'node:stream';
 import {
   type MinimalPluginContextWithoutEnvironment,
   type Plugin,
@@ -194,7 +193,14 @@ function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: Blogger
     server.middlewares.use(async (req, res, next) => {
       const url = getRequestUrl(req);
 
-      if (!req.url || !req.originalUrl || !url || htmlPathnames.includes(url.pathname.replace(/\/+/g, '/'))) {
+      if (
+        !req.url ||
+        !req.originalUrl ||
+        !url ||
+        !req.method ||
+        !['GET', 'HEAD'].includes(req.method.toUpperCase()) ||
+        htmlPathnames.includes(url.pathname.replace(/\/+/g, '/'))
+      ) {
         next();
         return;
       }
@@ -209,7 +215,6 @@ function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: Blogger
       const proxyRequest = new Request(proxyUrl, {
         method: req.method,
         headers: toWebHeaders(req.headers),
-        body: ['GET', 'HEAD'].includes(req.method ?? '') ? undefined : Readable.toWeb(req),
         redirect: 'manual',
       });
 
@@ -256,7 +261,9 @@ function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: Blogger
         if (contentType?.startsWith('text/html')) {
           let htmlTemplateContent = await proxyResponse.text();
 
-          if (ctx.tailwind && isViteDevServer(server)) {
+          const secFetchDestHeader = req.headers['sec-fetch-dest'];
+          const secFetchModeHeader = req.headers['sec-fetch-mode'];
+          if (ctx.tailwind && isViteDevServer(server) && secFetchDestHeader === 'document' && secFetchModeHeader === 'navigate') {
             await updateTailwindCache(ctx.root, htmlTemplateContent);
           }
 
