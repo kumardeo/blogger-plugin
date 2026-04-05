@@ -1,5 +1,11 @@
 # blogger-plugin
 
+## 0.0.7
+
+### Patch Changes
+
+- [`19bd22a`](https://github.com/kumardeo/blogger-plugin/commit/19bd22a80cf28db519880e56257211b1a1483d40) Thanks [@kumardeo](https://github.com/kumardeo)! - feat: check`sec-fetch-dest` and `sec-fetch-mode` before updating `.tailwind-classes.json` in dev or preview mode
+
 ## 0.0.6
 
 ### Patch Changes
