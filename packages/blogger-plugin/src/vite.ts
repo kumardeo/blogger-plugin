@@ -390,23 +390,30 @@ export default function blogger(userOptions: BloggerPluginOptions): Plugin {
       const beforeBodyEnd = match[4];
 
       const headContent = (afterHeadBegin + beforeHeadEnd)
-        // boolean attributes to empty string
-        .replace(/\b(crossorigin|defer|async|disabled|checked)\b(?!=)/g, (_, $1: string) => `${$1}=""`)
-        // convert attributes to single quotes safely
-        .replace(/(\w+)=(".*?"|'.*?')/g, (_, $1: string, $2: string) => {
-          const v = $2
-            // remove quotes
-            .slice(1, -1)
-            // escape special XML chars
-            .replace(/&/g, '&amp;')
-            .replace(/'/g, '&apos;')
-            .replace(/"/g, '&quot;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
-          return `${$1}='${v}'`;
+        .replace(/<[^>]+>/g, (openingTag: string) => {
+          return (
+            openingTag
+              // boolean attributes to empty string
+              .replace(/\b(crossorigin|defer|async|disabled|checked)\b(?!\s*=)/g, (_, $1: string) =>
+                $1 === 'crossorigin' ? 'crossorigin="anonymous"' : `${$1}=""`,
+              )
+              // convert attributes to single quotes safely
+              .replace(/(\w+)=(".*?"|'.*?')/g, (_, $1: string, $2: string) => {
+                const v = $2
+                  // remove quotes
+                  .slice(1, -1)
+                  // escape special XML chars
+                  .replace(/&/g, '&amp;')
+                  .replace(/'/g, '&apos;')
+                  .replace(/"/g, '&quot;')
+                  .replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;');
+                return `${$1}='${v}'`;
+              })
+          );
         })
         // self-close void tags
-        .replace(/<(link|meta|img|br|hr|input)([^>]*?)>/gi, (_, $1: string, $2: string) => `<${$1}${$2} />`)
+        .replace(/<(link|meta|img|br|hr|input)([^>]*?)>/gi, (_, $1: string, $2: string) => `<${$1}${$2}/>`)
         // remove whitespace between tags
         .replace(/>\s+</g, '><')
         // trim overall
