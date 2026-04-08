@@ -1,5 +1,11 @@
 # blogger-plugin
 
+## 0.0.8
+
+### Patch Changes
+
+- [`17d6641`](https://github.com/bloggerkit/blogger-plugin/commit/17d664108b3ae45c0b29624351324f2115d6ab02) Thanks [@kumardeo](https://github.com/kumardeo)! - fix: handle crossorigin attribute correctly
+
 ## 0.0.7
 
 ### Patch Changes
