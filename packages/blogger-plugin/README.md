@@ -7,6 +7,7 @@ A plugin that allows you to use modern frontend frameworks inside a Blogger temp
 - ✅ Supports **all major frontend frameworks** supported by Vite — including **React, Vue, Svelte, Solid**, and more.
 - 🔄 Enables **local development** by proxying unhandled requests to a Blogger blog.
 - 🧩 Works seamlessly with Vite’s dev server and build system.
+- 🎨 Automatic **Tailwind CSS** support — Extracts classes from proxied content during development.
 
 ## 📦 Installation
 
@@ -104,6 +105,26 @@ The `blogger()` plugin accepts the following options:
 | `modules`   | `string[]` | Auto-detected | Custom entry module paths to include in your build. If not specified, the plugin will search for: `src/index.{tsx\|ts\|jsx\|js}`, `src/main.{tsx\|ts\|jsx\|js}` |
 | `styles`    | `string[]` | `undefined`   | Custom CSS file paths to inject into the template. Useful for global stylesheets or critical CSS.                                                               |
 | `template`  | `string`   | Auto-detected | Path to your Blogger XML template file. If not specified, the plugin will search for: `{index\|template\|theme}.xml`, `src/{index\|template\|theme}.xml`        |
+
+### Tailwind CSS Support
+
+The plugin **automatically detects and supports Tailwind CSS**. When Tailwind is configured in your project, the plugin:
+
+1. **During development:** Extracts Tailwind classes from the HTML content of your proxied Blogger blog as you navigate and preview pages, caching them in `.tailwind-classes.json`
+2. **During build:** Extracts Tailwind classes **only from your template XML** file to ensure all classes used in your template are included in the production CSS
+3. **Optimizes compilation** by providing Tailwind with the discovered classes
+
+To use Tailwind CSS with the blogger-plugin:
+
+1. **Install Tailwind CSS** and configure it as usual in your project
+2. The plugin will **automatically detect** your Tailwind setup — no additional configuration needed!
+3. **During development:** Navigate through your blog preview to allow Tailwind to extract classes from your blog's HTML
+4. **During build:** Make sure your template XML includes all the Tailwind classes you're using, as only the template is scanned for production
+
+The plugin gathers Tailwind classes from your proxied blog during development and from your template during the build for complete coverage in production.
+
+> [!TIP]
+> Add `.tailwind-classes.json` to your `.gitignore` — it's a generated cache file that will be recreated during development and build.
 
 ### Example with All Options
 
