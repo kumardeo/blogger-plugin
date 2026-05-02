@@ -72,7 +72,7 @@ export default function blogger(userOptions: BloggerPluginOptions): Plugin {
       }
     },
     buildStart() {
-      if (!/^https?:\/\//.test(ctx.viteConfig.base)) {
+      if (ctx.viteConfig.command === 'build' && !/^https?:\/\//.test(ctx.viteConfig.base)) {
         this.warn(`"base" should be a CDN URL in production
 ----------------------
 Blogger cannot serve static assets (JS, CSS, etc.), so you must use
