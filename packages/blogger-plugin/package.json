@@ -1,7 +1,6 @@
 {
   "name": "blogger-plugin",
   "version": "0.0.8",
-  "private": false,
   "description": "A plugin which allows you to use frontend frameworks in a blogger template.",
   "keywords": [
     "blogger"
@@ -21,26 +20,30 @@
   "bugs": {
     "url": "https://github.com/bloggerkit/blogger-plugin/issues"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "lint": "biome lint ./src",
     "check": "biome check ./src",
     "check:types": "tsc --noEmit",
-    "build": "NODE_ENV=production tsup",
-    "dev": "NODE_ENV=development tsup --watch"
+    "build": "NODE_ENV=production tsdown",
+    "dev": "NODE_ENV=development tsdown --watch"
   },
   "files": [
     "dist"
   ],
   "type": "module",
   "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "exports": {
     "./package.json": "./package.json",
     ".": {
       "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
       },
       "require": {
         "types": "./dist/index.d.cts",
@@ -49,8 +52,8 @@
     },
     "./vite": {
       "import": {
-        "types": "./dist/vite.d.ts",
-        "default": "./dist/vite.js"
+        "types": "./dist/vite.d.mts",
+        "default": "./dist/vite.mjs"
       },
       "require": {
         "types": "./dist/vite.d.cts",
@@ -65,8 +68,8 @@
     "tailwindcss-iso": "^1.0.6"
   },
   "devDependencies": {
-    "@types/node": "^24.6.2",
-    "tsup": "^8.5.0",
+    "@types/node": "catalog:default",
+    "tsdown": "catalog:default",
     "vite": "^7.0.0"
   }
 }

@@ -1,4 +1,4 @@
-import react from '@vitejs/plugin-react-swc';
+import react from '@vitejs/plugin-react';
 import blogger from 'blogger-plugin/vite';
 import { defineConfig, type Plugin } from 'vite';
 
@@ -6,9 +6,9 @@ import { defineConfig, type Plugin } from 'vite';
 export default defineConfig({
   base: process.env.VITE_BASE ?? '/',
   plugins: [
-    react(),
     blogger({
       proxyBlog: 'https://blogger-plugin-dev.blogspot.com',
     }) as Plugin,
+    react(),
   ],
 });
