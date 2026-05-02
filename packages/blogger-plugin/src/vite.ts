@@ -9,8 +9,8 @@ import {
   type ViteDevServer,
   version as viteVersion,
 } from 'vite';
-import { clearTailwindCache, removeTailwindCache, updateTailwindCache } from './cache';
 import { DEFAULT_MODULES, DEFAULT_TEMPLATES } from './constants';
+import { clearTailwindCache, removeTailwindCache, updateTailwindCache } from './tailwind';
 import {
   errorHtml,
   getBloggerPluginHeadComment,
@@ -320,7 +320,7 @@ export default function blogger(userOptions: BloggerPluginOptions): Plugin {
   const ctx = new BloggerPluginContext(userOptions);
 
   return {
-    name: 'vite-plugin-blogger',
+    name: '@blogger-plugin/vite',
     config(config) {
       // resolve plugin context
       ctx.resolve(config);
@@ -365,6 +365,28 @@ export default function blogger(userOptions: BloggerPluginOptions): Plugin {
     load(id) {
       if (id === ctx.input) {
         return ctx.html;
+      }
+    },
+    buildStart() {
+      if (!/^https?:\/\//.test(ctx.viteConfig.base)) {
+        this.warn(`"base" should be a CDN URL in production
+----------------------
+Blogger cannot serve static assets (JS, CSS, etc.), so you must use
+an absolute URL (http:// or https://).
+
+Current value:
+  base: "${ctx.viteConfig.base}"
+
+Quick fix:
+  VITE_BASE=https://cdn.jsdelivr.net/gh/<username>/<repository>@latest/dist/ npm run build
+
+Vite config (recommended):
+  export default defineConfig({
+    base: process.env.VITE_BASE ?? "/"
+  });
+
+Without this, your assets may fail to load in Blogger.
+----------------------`);
       }
     },
     writeBundle(_, bundle) {
