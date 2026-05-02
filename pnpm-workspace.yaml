@@ -7,8 +7,8 @@ allowBuilds:
   esbuild: true
 
 catalog:
-  "@types/node": "^24.6.2"
-  tsdown: "^0.21.6"
+  "@types/node": "^25.6.0"
+  tsdown: "^0.21.10"
 
 engineStrict: true
 strictPeerDependencies: true
