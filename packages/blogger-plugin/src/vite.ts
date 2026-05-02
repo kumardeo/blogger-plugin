@@ -1,15 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import {
-  type MinimalPluginContextWithoutEnvironment,
-  type Plugin,
-  type PreviewServer,
-  type ResolvedConfig,
-  type UserConfig,
-  type ViteDevServer,
-  version as viteVersion,
-} from 'vite';
-import { DEFAULT_MODULES, DEFAULT_TEMPLATES } from './constants';
+import type { MinimalPluginContextWithoutEnvironment, Plugin, PreviewServer, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
+import { DEFAULT_MODULES, DEFAULT_TEMPLATES, VITE_BUNDLER_KEY } from './constants';
 import { clearTailwindCache, removeTailwindCache, updateTailwindCache } from './tailwind';
 import {
   errorHtml,
@@ -20,294 +12,6 @@ import {
   replaceHost,
   toWebHeaders,
 } from './utils';
-
-const viteMajor = Number(viteVersion.split('.')[0]);
-const bundlerKey = (viteMajor >= 8 ? 'rolldownOptions' : 'rollupOptions') as 'rollupOptions';
-
-class BloggerPluginContext {
-  options: BloggerPluginOptions;
-  root: string;
-  modules: string[];
-  styles: string[];
-  template: string;
-  name: string;
-  proxyBlog: URL;
-  viteConfig: ResolvedConfig;
-  tailwind: boolean;
-  input: string;
-  html: string;
-  headTags: string[];
-
-  constructor(options: BloggerPluginOptions) {
-    if (typeof options.template !== 'undefined' && typeof options.template !== 'string') {
-      throw new Error("Option 'template' must be a string");
-    }
-    if (typeof options.modules !== 'undefined' && !Array.isArray(options.modules)) {
-      throw new Error("Option 'modules' must be an array");
-    }
-    if (typeof options.styles !== 'undefined' && !Array.isArray(options.styles)) {
-      throw new Error("Option 'styles' must be an array");
-    }
-    if (typeof options.proxyBlog !== 'string') {
-      throw new Error("Option 'proxyBlog' must be a string");
-    }
-    let proxyBlog: URL;
-    try {
-      proxyBlog = new URL(options.proxyBlog);
-    } catch {
-      throw new Error("Option 'proxyBlog' must be a valid url");
-    }
-
-    this.options = options;
-    this.root = process.cwd();
-    this.modules = [];
-    this.styles = [];
-    this.template = undefined as unknown as string;
-    this.name = undefined as unknown as string;
-    this.proxyBlog = proxyBlog;
-    this.viteConfig = undefined as unknown as ResolvedConfig;
-    this.tailwind = false;
-    this.input = undefined as unknown as string;
-    this.headTags = [];
-    this.html = undefined as unknown as string;
-  }
-
-  resolve(config: UserConfig) {
-    this.root = config.root ? path.resolve(config.root) : this.root;
-
-    if (this.options.modules) {
-      for (let i = 0; i < this.options.modules.length; i++) {
-        const module = this.options.modules[i];
-        const modulePath = path.resolve(this.root, module);
-        if (this.modules.includes(modulePath)) {
-          continue;
-        }
-        if (fs.existsSync(modulePath)) {
-          this.modules.push(modulePath);
-        } else {
-          throw new Error(`The path provided at modules[${i}] does not exist: ${modulePath}`);
-        }
-      }
-    } else {
-      for (const module of DEFAULT_MODULES) {
-        const modulePath = path.resolve(this.root, module);
-        if (fs.existsSync(modulePath)) {
-          this.modules.push(modulePath);
-          break;
-        }
-      }
-    }
-
-    if (this.options.styles) {
-      for (let i = 0; i < this.options.styles.length; i++) {
-        const style = this.options.styles[i];
-        const stylePath = path.resolve(this.root, style);
-        if (this.styles.includes(stylePath)) {
-          continue;
-        }
-        if (fs.existsSync(stylePath)) {
-          this.styles.push(stylePath);
-        } else {
-          throw new Error(`The path provided at styles[${i}] does not exist: ${stylePath}`);
-        }
-      }
-    }
-
-    if (this.options.template) {
-      const templatePath = path.resolve(this.root, this.options.template);
-      if (fs.existsSync(templatePath)) {
-        this.template = templatePath;
-      } else {
-        throw new Error(`Provided template file does not exist: ${templatePath}`);
-      }
-    } else {
-      for (const file of DEFAULT_TEMPLATES) {
-        const fullPath = path.resolve(this.root, file);
-        if (fs.existsSync(fullPath)) {
-          this.template = fullPath;
-          break;
-        }
-      }
-
-      if (!this.template) {
-        throw new Error(
-          'No template file found.\n' +
-            `Tried: ${DEFAULT_TEMPLATES.join(', ')}\n` +
-            '👉 Tip: You can pass a custom template as shown:\n' +
-            '   blogger({ template: "src/my-template.xml" })',
-        );
-      }
-    }
-
-    this.name = path.basename(this.template, path.extname(this.template));
-
-    for (const modulePath of this.modules) {
-      this.headTags.push(`<script type="module" src="/${path.relative(this.root, modulePath).replaceAll('\\', '/')}"></script>`);
-    }
-    for (const stylePath of this.styles) {
-      this.headTags.push(`<link rel="stylesheet" href="/${path.relative(this.root, stylePath).replaceAll('\\', '/')}">`);
-    }
-
-    this.input = `virtual:blogger-plugin/${this.name}.html`;
-    this.html = `<!DOCTYPE html>
-<html>
-<head>
-  <!--head-->${this.headTags.length > 0 ? `\n  ${this.headTags.join('\n  ')}` : ''}
-</head>
-<body>
-  <!--body-->
-</body>
-</html>`;
-  }
-}
-
-function isViteDevServer(server: ViteDevServer | PreviewServer): server is ViteDevServer {
-  return 'hot' in server && 'transformRequest' in server && 'transformIndexHtml' in server;
-}
-
-function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: BloggerPluginContext, _this: MinimalPluginContextWithoutEnvironment) {
-  const input = ctx.viteConfig.build[bundlerKey].input;
-  const htmlPathnames: string[] = [];
-  for (const entry of Array.isArray(input) ? input : typeof input === 'object' ? Object.values(input) : typeof input === 'string' ? [input] : []) {
-    if (entry === ctx.input) {
-      continue;
-    }
-    const entryPath = path.resolve(ctx.root, entry);
-    if (!entryPath.endsWith('.html')) {
-      continue;
-    }
-    const relativePath = path.relative(ctx.root, entry).replaceAll('\\', '/');
-    htmlPathnames.push(`/${relativePath}`);
-    if (relativePath.endsWith('index.html')) {
-      htmlPathnames.push(`/${relativePath.replace(/index\.html$/, '')}`);
-    }
-  }
-
-  return () => {
-    server.httpServer?.once('listening', () => {
-      setTimeout(() => {
-        _this.info(`Unhandled requests will be proxied to ${ctx.proxyBlog.origin}`);
-      }, 0);
-    });
-
-    server.middlewares.use(async (req, res, next) => {
-      const url = getRequestUrl(req);
-
-      if (
-        !req.url ||
-        !req.originalUrl ||
-        !url ||
-        !req.method ||
-        !['GET', 'HEAD'].includes(req.method.toUpperCase()) ||
-        htmlPathnames.includes(url.pathname.replace(/\/+/g, '/'))
-      ) {
-        next();
-        return;
-      }
-
-      const start = Date.now();
-
-      const proxyUrl = new URL(`${ctx.proxyBlog.origin}${req.originalUrl}`);
-
-      const viewParam = proxyUrl.searchParams.get('view');
-      proxyUrl.searchParams.set('view', `${isViteDevServer(server) ? '-DevServer' : '-PreviewServer'}${viewParam?.startsWith('-') ? viewParam : ''}`);
-
-      const proxyRequest = new Request(proxyUrl, {
-        method: req.method,
-        headers: toWebHeaders(req.headers),
-        redirect: 'manual',
-      });
-
-      const proxyResponse = await fetch(proxyRequest).catch((error) => {
-        if (error instanceof Error) {
-          _this.warn({
-            message: `${error.name}: ${error.message}`,
-            cause: error.cause,
-            stack: error.stack,
-          });
-        } else {
-          _this.warn('Fetch failed');
-        }
-        return null;
-      });
-
-      if (proxyResponse) {
-        res.statusCode = proxyResponse.status;
-        res.statusMessage = proxyResponse.statusText;
-
-        proxyResponse.headers.forEach((value, key) => {
-          if (key === 'location') {
-            const redirectUrl = new URL(value, proxyUrl);
-            if (redirectUrl.host === url.host || redirectUrl.host === proxyUrl.host) {
-              redirectUrl.host = url.host;
-              redirectUrl.protocol = url.protocol;
-              const viewParam = redirectUrl.searchParams.get('view')?.replaceAll('-DevServer', '').replaceAll('-PreviewServer', '');
-              if (viewParam) {
-                redirectUrl.searchParams.set('view', viewParam);
-              } else {
-                redirectUrl.searchParams.delete('view');
-              }
-              res.setHeader('location', redirectUrl.pathname + redirectUrl.search + redirectUrl.hash);
-            } else {
-              res.setHeader('location', redirectUrl.href);
-            }
-          } else if (['content-type', 'x-robots-tag', 'date', 'location'].includes(key)) {
-            res.setHeader(key, value);
-          }
-        });
-
-        const contentType = proxyResponse.headers.get('content-type');
-
-        if (contentType?.startsWith('text/html')) {
-          let htmlTemplateContent = await proxyResponse.text();
-
-          const secFetchDestHeader = req.headers['sec-fetch-dest'];
-          const secFetchModeHeader = req.headers['sec-fetch-mode'];
-          if (ctx.tailwind && isViteDevServer(server) && secFetchDestHeader === 'document' && secFetchModeHeader === 'navigate') {
-            await updateTailwindCache(ctx.root, htmlTemplateContent);
-          }
-
-          htmlTemplateContent = replaceHost(htmlTemplateContent, proxyUrl.host, url.host, url.protocol);
-
-          if (isViteDevServer(server)) {
-            const template = await server.transformIndexHtml(
-              req.url,
-              replaceBloggerPluginHeadComment(htmlTemplateContent, ctx.headTags.join('')),
-              req.originalUrl,
-            );
-
-            res.end(template);
-          } else {
-            const xmlTemplateContent = fs.readFileSync(path.resolve(ctx.viteConfig.build.outDir, 'template.xml'), 'utf8');
-
-            const htmlTagsStr = getBloggerPluginHeadComment(xmlTemplateContent, true);
-
-            const template = replaceBloggerPluginHeadComment(htmlTemplateContent, htmlTagsStr ?? '');
-
-            res.end(template);
-          }
-        } else if (contentType && /^(text\/)|(application\/(.*\+)?(xml|json))/.test(contentType)) {
-          const content = await proxyResponse.text();
-
-          res.end(replaceHost(content, proxyUrl.host, url.host, url.protocol));
-        } else {
-          res.end(new Uint8Array(await proxyResponse.arrayBuffer()));
-        }
-      } else {
-        res.statusCode = 500;
-        res.statusMessage = 'Internal Server Error';
-
-        res.setHeader('Content-Type', 'text/html');
-
-        res.end(errorHtml(proxyUrl.href));
-      }
-
-      const duration = Date.now() - start;
-
-      _this.info(`${req.method} ${req.originalUrl} -> ${res.statusCode} ${res.statusMessage} (${duration}ms)`);
-    });
-  };
-}
 
 export interface BloggerPluginOptions {
   modules?: string[];
@@ -327,8 +31,8 @@ export default function blogger(userOptions: BloggerPluginOptions): Plugin {
 
       // modify vite config
       config.build ||= {};
-      config.build[bundlerKey] ||= {};
-      const bundlerOptions = config.build[bundlerKey];
+      config.build[VITE_BUNDLER_KEY] ||= {};
+      const bundlerOptions = config.build[VITE_BUNDLER_KEY];
       if (Array.isArray(bundlerOptions.input)) {
         bundlerOptions.input = [...bundlerOptions.input, ctx.input];
       } else if (typeof bundlerOptions.input === 'object' && bundlerOptions.input !== null) {
@@ -483,4 +187,289 @@ Without this, your assets may fail to load in Blogger.
       return useServerMiddleware(server, ctx, this);
     },
   };
+}
+
+class BloggerPluginContext {
+  options: BloggerPluginOptions;
+  root: string;
+  modules: string[];
+  styles: string[];
+  template: string;
+  name: string;
+  proxyBlog: URL;
+  viteConfig: ResolvedConfig;
+  tailwind: boolean;
+  input: string;
+  html: string;
+  headTags: string[];
+
+  constructor(options: BloggerPluginOptions) {
+    if (typeof options.template !== 'undefined' && typeof options.template !== 'string') {
+      throw new Error("Option 'template' must be a string");
+    }
+    if (typeof options.modules !== 'undefined' && !Array.isArray(options.modules)) {
+      throw new Error("Option 'modules' must be an array");
+    }
+    if (typeof options.styles !== 'undefined' && !Array.isArray(options.styles)) {
+      throw new Error("Option 'styles' must be an array");
+    }
+    if (typeof options.proxyBlog !== 'string') {
+      throw new Error("Option 'proxyBlog' must be a string");
+    }
+    let proxyBlog: URL;
+    try {
+      proxyBlog = new URL(options.proxyBlog);
+    } catch {
+      throw new Error("Option 'proxyBlog' must be a valid url");
+    }
+
+    this.options = options;
+    this.root = process.cwd();
+    this.modules = [];
+    this.styles = [];
+    this.template = undefined as unknown as string;
+    this.name = undefined as unknown as string;
+    this.proxyBlog = proxyBlog;
+    this.viteConfig = undefined as unknown as ResolvedConfig;
+    this.tailwind = false;
+    this.input = undefined as unknown as string;
+    this.headTags = [];
+    this.html = undefined as unknown as string;
+  }
+
+  resolve(config: UserConfig) {
+    this.root = config.root ? path.resolve(config.root) : this.root;
+
+    if (this.options.modules) {
+      for (let i = 0; i < this.options.modules.length; i++) {
+        const module = this.options.modules[i];
+        const modulePath = path.resolve(this.root, module);
+        if (this.modules.includes(modulePath)) {
+          continue;
+        }
+        if (fs.existsSync(modulePath)) {
+          this.modules.push(modulePath);
+        } else {
+          throw new Error(`The path provided at modules[${i}] does not exist: ${modulePath}`);
+        }
+      }
+    } else {
+      for (const module of DEFAULT_MODULES) {
+        const modulePath = path.resolve(this.root, module);
+        if (fs.existsSync(modulePath)) {
+          this.modules.push(modulePath);
+          break;
+        }
+      }
+    }
+
+    if (this.options.styles) {
+      for (let i = 0; i < this.options.styles.length; i++) {
+        const style = this.options.styles[i];
+        const stylePath = path.resolve(this.root, style);
+        if (this.styles.includes(stylePath)) {
+          continue;
+        }
+        if (fs.existsSync(stylePath)) {
+          this.styles.push(stylePath);
+        } else {
+          throw new Error(`The path provided at styles[${i}] does not exist: ${stylePath}`);
+        }
+      }
+    }
+
+    if (this.options.template) {
+      const templatePath = path.resolve(this.root, this.options.template);
+      if (fs.existsSync(templatePath)) {
+        this.template = templatePath;
+      } else {
+        throw new Error(`Provided template file does not exist: ${templatePath}`);
+      }
+    } else {
+      for (const file of DEFAULT_TEMPLATES) {
+        const fullPath = path.resolve(this.root, file);
+        if (fs.existsSync(fullPath)) {
+          this.template = fullPath;
+          break;
+        }
+      }
+
+      if (!this.template) {
+        throw new Error(
+          'No template file found.\n' +
+            `Tried: ${DEFAULT_TEMPLATES.join(', ')}\n` +
+            '👉 Tip: You can pass a custom template as shown:\n' +
+            '   blogger({ template: "src/my-template.xml" })',
+        );
+      }
+    }
+
+    this.name = path.basename(this.template, path.extname(this.template));
+
+    for (const modulePath of this.modules) {
+      this.headTags.push(`<script type="module" src="/${path.relative(this.root, modulePath).replaceAll('\\', '/')}"></script>`);
+    }
+    for (const stylePath of this.styles) {
+      this.headTags.push(`<link rel="stylesheet" href="/${path.relative(this.root, stylePath).replaceAll('\\', '/')}">`);
+    }
+
+    this.input = `virtual:blogger-plugin/${this.name}.html`;
+    this.html = `<!DOCTYPE html>
+<html>
+<head>
+  <!--head-->${this.headTags.length > 0 ? `\n  ${this.headTags.join('\n  ')}` : ''}
+</head>
+<body>
+  <!--body-->
+</body>
+</html>`;
+  }
+}
+
+function useServerMiddleware(server: ViteDevServer | PreviewServer, ctx: BloggerPluginContext, _this: MinimalPluginContextWithoutEnvironment) {
+  const input = ctx.viteConfig.build[VITE_BUNDLER_KEY].input;
+  const htmlPathnames: string[] = [];
+  for (const entry of Array.isArray(input) ? input : typeof input === 'object' ? Object.values(input) : typeof input === 'string' ? [input] : []) {
+    if (entry === ctx.input) {
+      continue;
+    }
+    const entryPath = path.resolve(ctx.root, entry);
+    if (!entryPath.endsWith('.html')) {
+      continue;
+    }
+    const relativePath = path.relative(ctx.root, entry).replaceAll('\\', '/');
+    htmlPathnames.push(`/${relativePath}`);
+    if (relativePath.endsWith('index.html')) {
+      htmlPathnames.push(`/${relativePath.replace(/index\.html$/, '')}`);
+    }
+  }
+
+  return () => {
+    server.httpServer?.once('listening', () => {
+      setTimeout(() => {
+        _this.info(`Unhandled requests will be proxied to ${ctx.proxyBlog.origin}`);
+      }, 0);
+    });
+
+    server.middlewares.use(async (req, res, next) => {
+      const url = getRequestUrl(req);
+
+      if (
+        !req.url ||
+        !req.originalUrl ||
+        !url ||
+        !req.method ||
+        !['GET', 'HEAD'].includes(req.method.toUpperCase()) ||
+        htmlPathnames.includes(url.pathname.replace(/\/+/g, '/'))
+      ) {
+        next();
+        return;
+      }
+
+      const start = Date.now();
+
+      const proxyUrl = new URL(`${ctx.proxyBlog.origin}${req.originalUrl}`);
+
+      const viewParam = proxyUrl.searchParams.get('view');
+      proxyUrl.searchParams.set('view', `${isViteDevServer(server) ? '-DevServer' : '-PreviewServer'}${viewParam?.startsWith('-') ? viewParam : ''}`);
+
+      const proxyRequest = new Request(proxyUrl, {
+        method: req.method,
+        headers: toWebHeaders(req.headers),
+        redirect: 'manual',
+      });
+
+      const proxyResponse = await fetch(proxyRequest).catch((error) => {
+        if (error instanceof Error) {
+          _this.warn({
+            message: `${error.name}: ${error.message}`,
+            cause: error.cause,
+            stack: error.stack,
+          });
+        } else {
+          _this.warn('Fetch failed');
+        }
+        return null;
+      });
+
+      if (proxyResponse) {
+        res.statusCode = proxyResponse.status;
+        res.statusMessage = proxyResponse.statusText;
+
+        proxyResponse.headers.forEach((value, key) => {
+          if (key === 'location') {
+            const redirectUrl = new URL(value, proxyUrl);
+            if (redirectUrl.host === url.host || redirectUrl.host === proxyUrl.host) {
+              redirectUrl.host = url.host;
+              redirectUrl.protocol = url.protocol;
+              const viewParam = redirectUrl.searchParams.get('view')?.replaceAll('-DevServer', '').replaceAll('-PreviewServer', '');
+              if (viewParam) {
+                redirectUrl.searchParams.set('view', viewParam);
+              } else {
+                redirectUrl.searchParams.delete('view');
+              }
+              res.setHeader('location', redirectUrl.pathname + redirectUrl.search + redirectUrl.hash);
+            } else {
+              res.setHeader('location', redirectUrl.href);
+            }
+          } else if (['content-type', 'x-robots-tag', 'date', 'location'].includes(key)) {
+            res.setHeader(key, value);
+          }
+        });
+
+        const contentType = proxyResponse.headers.get('content-type');
+
+        if (contentType?.startsWith('text/html')) {
+          let htmlTemplateContent = await proxyResponse.text();
+
+          const secFetchDestHeader = req.headers['sec-fetch-dest'];
+          const secFetchModeHeader = req.headers['sec-fetch-mode'];
+          if (ctx.tailwind && isViteDevServer(server) && secFetchDestHeader === 'document' && secFetchModeHeader === 'navigate') {
+            await updateTailwindCache(ctx.root, htmlTemplateContent);
+          }
+
+          htmlTemplateContent = replaceHost(htmlTemplateContent, proxyUrl.host, url.host, url.protocol);
+
+          if (isViteDevServer(server)) {
+            const template = await server.transformIndexHtml(
+              req.url,
+              replaceBloggerPluginHeadComment(htmlTemplateContent, ctx.headTags.join('')),
+              req.originalUrl,
+            );
+
+            res.end(template);
+          } else {
+            const xmlTemplateContent = fs.readFileSync(path.resolve(ctx.viteConfig.build.outDir, 'template.xml'), 'utf8');
+
+            const htmlTagsStr = getBloggerPluginHeadComment(xmlTemplateContent, true);
+
+            const template = replaceBloggerPluginHeadComment(htmlTemplateContent, htmlTagsStr ?? '');
+
+            res.end(template);
+          }
+        } else if (contentType && /^(text\/)|(application\/(.*\+)?(xml|json))/.test(contentType)) {
+          const content = await proxyResponse.text();
+
+          res.end(replaceHost(content, proxyUrl.host, url.host, url.protocol));
+        } else {
+          res.end(new Uint8Array(await proxyResponse.arrayBuffer()));
+        }
+      } else {
+        res.statusCode = 500;
+        res.statusMessage = 'Internal Server Error';
+
+        res.setHeader('Content-Type', 'text/html');
+
+        res.end(errorHtml(proxyUrl.href));
+      }
+
+      const duration = Date.now() - start;
+
+      _this.info(`${req.method} ${req.originalUrl} -> ${res.statusCode} ${res.statusMessage} (${duration}ms)`);
+    });
+  };
+}
+
+function isViteDevServer(server: ViteDevServer | PreviewServer): server is ViteDevServer {
+  return 'hot' in server && 'transformRequest' in server && 'transformIndexHtml' in server;
 }
