@@ -1,5 +1,13 @@
 # blogger-plugin
 
+## 0.0.9
+
+### Patch Changes
+
+- [`8b0e288`](https://github.com/bloggerkit/blogger-plugin/commit/8b0e28873bb57087830f3b4c50c3bfe669416642) Thanks [@kumardeo](https://github.com/kumardeo)! - feat: warn when `base` is not an absolute URL during build
+
+- [`b6259a0`](https://github.com/bloggerkit/blogger-plugin/commit/b6259a0da5aa6dca7d00a7c3ceb541d3b7d322cd) Thanks [@kumardeo](https://github.com/kumardeo)! - chore: migrate to `tsdown` for bundling
+
 ## 0.0.8
 
 ### Patch Changes

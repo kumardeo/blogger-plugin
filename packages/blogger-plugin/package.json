@@ -1,6 +1,6 @@
 {
   "name": "blogger-plugin",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "A plugin which allows you to use frontend frameworks in a blogger template.",
   "keywords": [
     "blogger"
